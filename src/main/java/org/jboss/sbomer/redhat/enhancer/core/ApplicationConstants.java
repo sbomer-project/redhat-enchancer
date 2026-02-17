@@ -6,6 +6,7 @@ public class ApplicationConstants {
     public static final String COMPONENT_NAME = "redhat-enhancer";
 
     // --- LABELS ---
+    public static final String LABEL_GENERATION_ID = "sbomer.jboss.org/generation-id";
     public static final String LABEL_ENHANCEMENT_ID = "sbomer.jboss.org/enhancement-id";
     public static final String LABEL_ENHANCER_TYPE = "sbomer.jboss.org/enhancer-type";
 

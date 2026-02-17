@@ -57,6 +57,10 @@ spec:
           value: "{{ .Values.koji.web.url }}"
         - name: SBOMER_KOJI_DOWNLOAD_HOST
           value: "{{ .Values.koji.download.host }}"
+        - name: QUARKUS_OIDC_CLIENT_CLIENT_ENABLED
+          value: "false"
+        - name: QUARKUS_OIDC_CLIENT_ENABLED
+          value: "false"
         - name: TRACE_ID
           valueFrom:
             fieldRef:
@@ -75,16 +79,43 @@ spec:
       script: |
         #!/usr/bin/env bash
         set -e
+        set -o pipefail
+
+        # Trap errors to print line numbers
+        trap 'echo "❌ Error detected on line $LINENO. Exiting..."' ERR
 
         WORK_DIR="$(workspaces.data.path)"
         mkdir -p "$WORK_DIR/logs"
-        exec &> >(tee "$WORK_DIR/logs/enhance.log")
+        exec > >(tee -a "$WORK_DIR/logs/enhance.log") 2>&1
+
+        INTERNAL_BASE="$(params.storage-service-url)"
 
         echo "--- 1. Download and Organize Input SBOMs ---"
-        for url in "$@"; do
-           filename=$(basename "$url")
+        echo "Using internal storage service: $INTERNAL_BASE"
+
+        for public_url in "$@"; do
+           filename=$(basename "$public_url")
+
+           # 1. Strip http://domain:port to get the raw path (e.g., /api/v1/storage/...)
+           # This regex handles http, https, and any domain/port combo
+           url_path=$(echo "$public_url" | sed -E 's|^https?://[^/]+||')
+
+           # 2. Construct the internal URL
+           # Ensure we don't end up with double slashes if the param has a trailing slash
+           internal_url="${INTERNAL_BASE%/}${url_path}"
+
            echo "Downloading $filename..."
-           curl -s -f -O "$url"
+           echo "  - Original: $public_url"
+           echo "  - Internal: $internal_url"
+
+           # 3. Download from the INTERNAL URL
+           http_code=$(curl -L -s -o "$filename" -w "%{http_code}" "$internal_url")
+
+           if [[ "$http_code" -ne 200 ]]; then
+             echo "❌ Failed to download. HTTP Status: $http_code"
+             echo "   Attempted URL: $internal_url"
+             exit 1
+           fi
 
            if [[ "$filename" == *"bom-"* ]]; then
              clean="${filename#bom-}"
@@ -93,9 +124,9 @@ spec:
 
              mkdir -p "$WORK_DIR/$folder_path"
              mv "$filename" "$WORK_DIR/$folder_path/bom.json"
-             echo "Placed at $WORK_DIR/$folder_path/bom.json"
+             echo "   Placed at $WORK_DIR/$folder_path/bom.json"
            else
-             echo "Warning: Could not parse architecture from $filename. Placing in root."
+             echo "⚠️ Warning: Could not parse architecture from $filename. Placing in root."
              mv "$filename" "$WORK_DIR/bom.json"
            fi
         done
@@ -106,6 +137,12 @@ spec:
 
         if [ -n "$PATHS_JSON" ] && [ "$PATHS_JSON" != "[]" ]; then
             echo "Parsing path filters: $PATHS_JSON"
+            # Validate jq exists or handle error
+            if ! echo "$PATHS_JSON" | jq -e . >/dev/null 2>&1; then
+                 echo "❌ Error: params.paths is not valid JSON"
+                 exit 1
+            fi
+
             while IFS= read -r path; do
                 if [ -n "$path" ]; then
                     PATH_ARGS="$PATH_ARGS --path-filter \"$path\""
@@ -118,12 +155,26 @@ spec:
           RPM_FLAG="--rpms"
         fi
 
-        JAVA_CMD="${HOME}/.sdkman/candidates/java/17/bin/java -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError -Duser.home=/workdir -jar /workdir/generator/quarkus-run.jar"
+        # Check if Java exists
+        JAVA_BIN="${HOME}/.sdkman/candidates/java/17/bin/java"
+        if [ ! -f "$JAVA_BIN" ]; then
+            echo "❌ Error: Java executable not found at $JAVA_BIN"
+            exit 1
+        fi
+
+        JAVA_CMD="$JAVA_BIN -XX:InitialRAMPercentage=70.0 -XX:MaxRAMPercentage=70.0 -XX:+ExitOnOutOfMemoryError -Duser.home=/workdir -jar /workdir/generator/quarkus-run.jar"
 
         echo "--- 3. Download Source Code ---"
         ANY_MANIFEST=$(find "$WORK_DIR" -type f -name "bom.json" | head -n 1)
+
+        if [ -z "$ANY_MANIFEST" ]; then
+            echo "❌ Error: No bom.json files found after download step."
+            exit 1
+        fi
+
         mkdir -p "$WORK_DIR/sources"
 
+        echo "Running SBOM download..."
         $JAVA_CMD -v sbom download --output-dir "$WORK_DIR/sources" brew-sources --path "$ANY_MANIFEST"
 
         echo "--- 4. Generate Source SBOM ---"
@@ -135,6 +186,7 @@ spec:
 
         SOURCES_ARCHIVE=$(find "$WORK_DIR/sources" -type f -name "*.tar.gz" | head -n 1)
         if [ -n "$SOURCES_ARCHIVE" ]; then
+             echo "Scanning source archive..."
              /workdir/syft/syft -vv scan file:"${SOURCES_ARCHIVE}" -o cyclonedx-json@1.6="$(dirname "${SOURCES_ARCHIVE}")/sources.json"
 
              SOURCES_MANIFEST="$WORK_DIR/sources/sources.json"
@@ -144,7 +196,16 @@ spec:
         fi
 
         echo "--- 5. Adjust (Merge & Enrich) ---"
-        for manifest in "$WORK_DIR"/*/*/bom.json; do
+        # Fail if no files match
+        shopt -s nullglob
+        manifests=("$WORK_DIR"/*/*/bom.json)
+
+        if [ ${#manifests[@]} -eq 0 ]; then
+             echo "❌ Error: No manifests found to adjust in $WORK_DIR/*/*/bom.json"
+             exit 1
+        fi
+
+        for manifest in "${manifests[@]}"; do
            echo "Adjusting $manifest..."
            $JAVA_CMD -v sbom adjust --path "$manifest" --output "$manifest" syft-image $RPM_FLAG $SOURCES_ARG $PATH_ARGS
         done
@@ -154,12 +215,14 @@ spec:
         $JAVA_CMD -v sbom catalog --path "$WORK_DIR" --image-name "$(params.image-ref)" --output "$WORK_DIR/catalog/bom.json" image-index
 
         echo "--- 7. Process (Validation) ---"
-        for manifest in "$WORK_DIR"/*/*/bom.json; do
+        for manifest in "${manifests[@]}"; do
             $JAVA_CMD -v sbom process --path "$manifest" $(params.processors)
         done
         if [ -f "$WORK_DIR/catalog/bom.json" ]; then
             $JAVA_CMD -v sbom process --path "$WORK_DIR/catalog/bom.json" $(params.processors)
         fi
+
+        echo "✅ Task completed successfully."
 
       args:
         - "$(params.input-sbom-urls[*])"

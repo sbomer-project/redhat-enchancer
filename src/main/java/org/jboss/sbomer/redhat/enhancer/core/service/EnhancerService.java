@@ -48,15 +48,18 @@ public class EnhancerService implements EnhancementOrchestrator {
     @ConfigProperty(name = "sbomer.enhancer.default-memory", defaultValue = "1Gi")
     String defaultMemory;
 
+    @ConfigProperty(name = "sbomer.enhancer.cleanup-failed", defaultValue = "false")
+    boolean cleanupFailed;
+
     // In-memory buffer (FOR NOW - SHOULD LATER BE PERSISTENT)
     private final Queue<EnhancementTask> pendingQueue = new ConcurrentLinkedQueue<>();
     private final Map<String, EnhancementTask> activeTasks = new ConcurrentHashMap<>();
 
     @Override
-    public void acceptRequest(String enhancementId, String generationId, Map<String, String> enhancerOptions, List<String> inputSbomUrls) {
+    public void acceptRequest(String enhancementId, String generationId, String imageRef, Map<String, String> enhancerOptions, List<String> inputSbomUrls) {
         log.info("Accepted request for enhancement: {} of generation: {}", enhancementId, generationId);
         // We don't execute immediately, we queue it to respect the throttling limit
-        pendingQueue.add(new EnhancementTask(enhancementId, generationId, enhancerOptions, inputSbomUrls));
+        pendingQueue.add(new EnhancementTask(enhancementId, generationId, imageRef, enhancerOptions, inputSbomUrls));
     }
 
     @Override
@@ -150,6 +153,7 @@ public class EnhancerService implements EnhancementOrchestrator {
         EnhancementTask retryTask = new EnhancementTask(
                 task.enhancementId(),
                 task.generationId(),
+                task.imageRef(),
                 task.enhancerOptions(),
                 task.inputSbomUrls(),
                 task.retryCount() + 1,
@@ -181,7 +185,9 @@ public class EnhancerService implements EnhancementOrchestrator {
     private void doCleanupIfFinished(String enhancementId, EnhancementStatus status) {
         if (status == EnhancementStatus.FINISHED || status == EnhancementStatus.FAILED) {
             activeTasks.remove(enhancementId);
-            executor.cleanupEnhancement(enhancementId);
+            if (cleanupFailed) {
+                executor.cleanupEnhancement(enhancementId);
+            }
         }
     }
 

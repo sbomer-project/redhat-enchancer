@@ -23,10 +23,11 @@ public interface EnhancementOrchestrator {
      *
      * @param enhancementId The unique ID of the enhancement.
      * @param generationId The unique ID of the generation the enhancement belongs to.
+     * @param imageRef The url of the image the enhancement belongs to. (unique to this enhancer as it needs this info)
      * @param enhancerOptions    The parameters passed for the enhancer to use.
      * @param inputSbomUrls      The list of URLs of the SBOMs to enhance.
      */
-    void acceptRequest(String enhancementId, String generationId, Map<String, String> enhancerOptions, List<String> inputSbomUrls);
+    void acceptRequest(String enhancementId, String generationId, String imageRef, Map<String, String> enhancerOptions, List<String> inputSbomUrls);
 
     /**
      * Feedback Point: Processes a status update from the execution environment

@@ -29,10 +29,11 @@ public class KafkaRequestConsumer {
             if (isMyEnhancer(event)) {
                 log.info("{} received task for enhancement: {}", COMPONENT_NAME,
                         event.getData().getEnhancementId());
-
+                log.info("{} received task for enhancement: {}", COMPONENT_NAME, event.getData().getEnhancer().getOptions());
                 orchestrator.acceptRequest(
                         event.getData().getEnhancementId(),
                         event.getData().getGenerationId(),
+                        event.getData().getGenerationRequest().getTarget().getIdentifier(),
                         event.getData().getEnhancer().getOptions(),
                         event.getData().getInputSbomUrls()
                 );
