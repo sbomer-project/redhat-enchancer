@@ -36,7 +36,7 @@ public class TaskRunFactory {
         Map<String, String> options = enhancementTask.enhancerOptions();
 
         // Default to "undefined" but ideally this should be validated upstream
-        String imageRef = options.getOrDefault("image-ref", "undefined");
+        String imageRef = enhancementTask.imageRef();
 
         // Parse boolean safely (defaults to true if missing, adjusting to your preference)
         boolean rpms = Boolean.parseBoolean(options.getOrDefault("include-rpms", "true"));
@@ -69,6 +69,7 @@ public class TaskRunFactory {
         // 2. Prepare Labels
         Map<String, String> labels = Map.of(
                 LABEL_ENHANCEMENT_ID, enhancementId,
+                LABEL_GENERATION_ID, generationId,
                 LABEL_ENHANCER_TYPE, LABEL_ENHANCER_VALUE,
                 "app.kubernetes.io/managed-by", "sbomer-redhat-enhancer"
         );

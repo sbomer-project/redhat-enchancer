@@ -53,11 +53,12 @@ class EnhancerServiceTest {
     void testHappyPathScheduling() {
         String enhId = "ENH-123";
         String genId = "GEN-456";
+        String imageRef = "quay.io/example/image:latest";
         Map<String, String> options = Map.of("type", "redhat-image-enhancer");
         List<String> urls = List.of("http://sbom.url");
 
         // 1. Queue the request
-        enhancerService.acceptRequest(enhId, genId, options, urls);
+        enhancerService.acceptRequest(enhId, genId, imageRef, options, urls);
 
         // 2. Trigger the scheduler manually
         enhancerService.processQueue();
@@ -82,9 +83,9 @@ class EnhancerServiceTest {
     void testThrottling() {
         // Simulate cluster is FULL (Max is 20 by default)
         when(executor.countActiveExecutions()).thenReturn(20);
-
+        String imageRef = "quay.io/example/image:latest";
         // Queue a request
-        enhancerService.acceptRequest("ENH-THROTTLE", "GEN-999", Collections.emptyMap(), Collections.emptyList());
+        enhancerService.acceptRequest("ENH-THROTTLE", "GEN-999", imageRef, Collections.emptyMap(), Collections.emptyList());
 
         // Trigger scheduler
         enhancerService.processQueue();
@@ -98,10 +99,10 @@ class EnhancerServiceTest {
     void testOomRetryLogic() {
         String enhId = "ENH-OOM";
         String genId = "GEN-OOM";
-
+        String imageRef = "quay.io/example/image:latest";
         // 1. We must have an active task running first to retry it.
         // Queue it -> Process it -> It becomes "Active" inside the service map
-        enhancerService.acceptRequest(enhId, genId, Collections.emptyMap(), Collections.emptyList());
+        enhancerService.acceptRequest(enhId, genId, imageRef, Collections.emptyMap(), Collections.emptyList());
         enhancerService.processQueue();
 
         // Clear mocks so we don't count the initial scheduling interaction

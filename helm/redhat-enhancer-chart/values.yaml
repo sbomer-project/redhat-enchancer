@@ -88,7 +88,7 @@ task:
     image: quay.io/rh-newcastle/sbomer-generator
     # If tag is empty, the template will default to .Chart.AppVersion (The Git SHA)
     tag: 44a14f2d
-    pullPolicy: IfNotPresent
+    pullPolicy: Never
 
 # This is for setting Kubernetes Annotations to a Pod.
 # For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
