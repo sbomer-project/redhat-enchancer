@@ -47,6 +47,8 @@ spec:
           cpu: 1000m
           memory: 2Gi
       env:
+        - name: SBOMER_HOST
+        - value: "{{ .Values.sbomer.host }}"
         - name: SBOMER_PNC_HOST
           value: "{{ .Values.pnc.host }}"
         - name: SBOMER_INDY_HOST

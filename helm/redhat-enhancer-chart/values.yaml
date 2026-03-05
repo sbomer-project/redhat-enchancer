@@ -32,6 +32,8 @@ koji:
     url: "http://koji-web-url"         # Web UI URL
   download:
     host: "http://koji-download-url"   # Direct download host
+sbomer:
+  host: "http://sbom-service-url" # URL to connect to the sbom-service
 
 # This section builds out the service account more information can be found here: https://kubernetes.io/docs/concepts/security/service-accounts/
 serviceAccount:
@@ -65,7 +67,6 @@ config:
   oomRetries: 3
   # Default internal cluster URL for storage
   storageUrl: "http://manifest-storage-service:8085"
-
   kafka:
     bootstrapServers: "kafka:9092"
     schemaRegistryUrl: "http://schema-registry:8080/apis/registry/v2"
